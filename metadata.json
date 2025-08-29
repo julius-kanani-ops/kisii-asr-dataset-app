@@ -1,0 +1,7 @@
+{
+  "name": "kisii-asr-speech-dataset-app",
+  "description": "A comprehensive tool to chunk Ekegusii text, record audio for each chunk, verify the recordings, and export a complete speech dataset with metadata.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

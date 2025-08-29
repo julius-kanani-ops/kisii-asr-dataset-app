@@ -13,7 +13,7 @@ export interface Chunk {
   audioUrl?: string;
 }
 
-export type Tab = 'text-input' | 'recording' | 'verification' | 'export';
+export type Tab = 'home' | 'text-input' | 'recording' | 'verification' | 'export';
 
 export interface Stats {
   total: number;

@@ -20,6 +20,7 @@ const Badge: React.FC<{ count: number }> = ({ count }) => {
 
 const Tabs: React.FC<TabsProps> = ({ activeTab, setActiveTab, stats }) => {
   const tabItems: { id: Tab; label: string; count?: number }[] = [
+    { id: 'home', label: 'Home' },
     { id: 'text-input', label: '1. Text Input', count: stats.total },
     { id: 'recording', label: '2. Recording', count: stats.total - stats.recorded },
     { id: 'verification', label: '3. Verification', count: stats.recorded - stats.verified },
@@ -28,13 +29,13 @@ const Tabs: React.FC<TabsProps> = ({ activeTab, setActiveTab, stats }) => {
 
   return (
     <div className="border-b border-gray-200 dark:border-gray-700">
-      <nav className="-mb-px flex space-x-2 sm:space-x-4 lg:space-x-8" aria-label="Tabs">
+      <nav className="-mb-px flex space-x-2 sm:space-x-4 lg:space-x-8 overflow-x-auto" aria-label="Tabs">
         {tabItems.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={`
-              whitespace-nowrap py-4 px-2 sm:px-3 border-b-2 font-medium text-sm sm:text-base
+              flex-shrink-0 whitespace-nowrap py-4 px-2 sm:px-3 border-b-2 font-medium text-sm sm:text-base
               transition-colors duration-200 ease-in-out
               ${
                 activeTab === tab.id

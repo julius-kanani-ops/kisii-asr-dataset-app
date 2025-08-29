@@ -7,7 +7,7 @@ interface ExportTabProps {
   stats: Stats;
   onDownloadCsv: () => void;
   onDownloadAudio: () => void;
-  onFullExport: () => void;
+  onBackupExport: () => void;
 }
 
 const StatCard: React.FC<{ label: string; value: number; color: string }> = ({ label, value, color }) => (
@@ -17,7 +17,7 @@ const StatCard: React.FC<{ label: string; value: number; color: string }> = ({ l
     </div>
 );
 
-const ExportTab: React.FC<ExportTabProps> = ({ stats, onDownloadCsv, onDownloadAudio, onFullExport }) => {
+const ExportTab: React.FC<ExportTabProps> = ({ stats, onDownloadCsv, onDownloadAudio, onBackupExport }) => {
   return (
     <div>
       <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-200 mb-4">Export Dataset</h2>
@@ -51,12 +51,12 @@ const ExportTab: React.FC<ExportTabProps> = ({ stats, onDownloadCsv, onDownloadA
                   <span>Audio Files (.zip)</span>
               </button>
               <button
-                  onClick={onFullExport}
+                  onClick={onBackupExport}
                   disabled={stats.verified === 0}
                   className="flex items-center justify-center space-x-2 w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-4 rounded-md transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed shadow-md"
               >
                   <DownloadIcon className="w-5 h-5" />
-                  <span>Complete Dataset</span>
+                  <span>Download Backup (.zip)</span>
               </button>
           </div>
           {stats.verified === 0 && <p className="text-center mt-4 text-sm text-yellow-600 dark:text-yellow-400">You need at least one verified chunk to download.</p>}

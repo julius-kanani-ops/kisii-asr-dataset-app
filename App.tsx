@@ -1,19 +1,112 @@
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import JSZip from 'jszip';
 import type { Chunk, Tab } from './types';
 import { ChunkStatus } from './types';
 import Tabs from './components/Tabs';
+import HomeTab from './components/HomeTab';
 import TextInputTab from './components/TextInputTab';
 import RecordingTab from './components/RecordingTab';
 import VerificationTab from './components/VerificationTab';
 import ExportTab from './components/ExportTab';
 import { EkegusiiLogo } from './components/icons/EkegusiiLogo';
 
+// --- LocalStorage Helper Functions ---
+const blobToBase64 = (blob: Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+};
+
+const base64ToBlob = async (base64: string): Promise<Blob> => {
+  const res = await fetch(base64);
+  return res.blob();
+};
+// --- End Helper Functions ---
+
+
 const App: React.FC = () => {
   const [chunks, setChunks] = useState<Chunk[]>([]);
-  const [activeTab, setActiveTab] = useState<Tab>('text-input');
+  const [activeTab, setActiveTab] = useState<Tab>('home');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof window !== 'undefined' && localStorage.getItem('theme')) {
+        return localStorage.getItem('theme') as 'light' | 'dark';
+    }
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        return 'dark';
+    }
+    return 'light';
+  });
+
+  // Effect to apply the theme
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [theme]);
+  
+  // Effect to load chunks from localStorage on initial render
+  useEffect(() => {
+    const loadChunks = async () => {
+        const savedChunksJson = localStorage.getItem('ekegusii-chunks');
+        if (savedChunksJson) {
+            toast.loading('Resuming previous session...', { id: 'load-toast' });
+            try {
+                const savedChunks = JSON.parse(savedChunksJson);
+                const hydratedChunks = await Promise.all(savedChunks.map(async (chunk: any) => {
+                    if (chunk.audioBase64) {
+                        const audioBlob = await base64ToBlob(chunk.audioBase64);
+                        return { ...chunk, audioBlob, audioUrl: URL.createObjectURL(audioBlob) };
+                    }
+                    return chunk;
+                }));
+                setChunks(hydratedChunks);
+                toast.success('Session restored successfully!', { id: 'load-toast' });
+            } catch (error) {
+                console.error("Failed to load chunks from localStorage", error);
+                localStorage.removeItem('ekegusii-chunks');
+                toast.error('Could not restore session.', { id: 'load-toast' });
+            }
+        }
+    };
+    loadChunks();
+  }, []);
+
+  // Effect to save chunks to localStorage whenever they change
+  useEffect(() => {
+    const saveChunks = async () => {
+        if (chunks.length > 0) {
+            const storableChunks = await Promise.all(chunks.map(async (chunk) => {
+                const { audioBlob, audioUrl, ...rest } = chunk;
+                if (audioBlob) {
+                    try {
+                        const audioBase64 = await blobToBase64(audioBlob);
+                        return { ...rest, audioBase64 };
+                    } catch (error) {
+                       console.error("Error converting blob to base64:", error);
+                       return rest; // save without audio if conversion fails
+                    }
+                }
+                return rest;
+            }));
+            localStorage.setItem('ekegusii-chunks', JSON.stringify(storableChunks));
+        } else {
+             localStorage.removeItem('ekegusii-chunks');
+        }
+    };
+    // Debounce saving to avoid excessive writes
+    const handler = setTimeout(() => saveChunks(), 500);
+    return () => clearTimeout(handler);
+  }, [chunks]);
+
 
   const stats = useMemo(() => {
     const recorded = chunks.filter(c => c.status === ChunkStatus.Recorded || c.status === ChunkStatus.Verified).length;
@@ -44,7 +137,7 @@ const App: React.FC = () => {
           : chunk
       )
     );
-    toast.success(`Recording saved for chunk ${id}`);
+    toast.success(`Recording saved for chunk.`);
   }, []);
 
   const handleVerification = useCallback((id: string, newStatus: ChunkStatus, newText?: string) => {
@@ -55,15 +148,20 @@ const App: React.FC = () => {
           if (newText !== undefined) {
             updatedChunk.text = newText;
           }
+          if (newStatus === ChunkStatus.Unrecorded) {
+            // Clear audio data if rejected
+            delete updatedChunk.audioBlob;
+            delete updatedChunk.audioUrl;
+          }
           return updatedChunk;
         }
         return chunk;
       })
     );
     if (newStatus === ChunkStatus.Verified) {
-      toast.success(`Chunk ${id} verified!`);
+      toast.success(`Chunk verified!`);
     } else {
-       toast.error(`Chunk ${id} rejected. Please re-record.`);
+       toast.error(`Chunk rejected. Please re-record.`);
     }
   }, []);
 
@@ -74,7 +172,7 @@ const App: React.FC = () => {
       return;
     }
     const header = 'filename|transcription\n';
-    const rows = verifiedChunks.map(c => `${c.id}.wav|${c.text.trim()}`).join('\n');
+    const rows = verifiedChunks.map((c, index) => `sentence${index + 1}.wav|${c.text.trim()}`).join('\n');
     const csvContent = header + rows;
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -98,8 +196,8 @@ const App: React.FC = () => {
 
     toast.loading('Preparing audio files for download...', { id: 'zip-toast' });
     const zip = new JSZip();
-    verifiedChunks.forEach(chunk => {
-        zip.file(`${chunk.id}.wav`, chunk.audioBlob!);
+    verifiedChunks.forEach((chunk, index) => {
+        zip.file(`sentence${index + 1}.wav`, chunk.audioBlob!);
     });
 
     try {
@@ -120,16 +218,62 @@ const App: React.FC = () => {
     }
 }, [chunks]);
 
-  const handleFullExport = useCallback(async () => {
-    toast.success('Starting full dataset export...');
-    handleDownloadCsv();
-    // Add a small delay to ensure browsers handle downloads separately
-    await new Promise(resolve => setTimeout(resolve, 1000)); 
-    handleDownloadAudio();
-  }, [handleDownloadCsv, handleDownloadAudio]);
+  const handleBackupExport = useCallback(async () => {
+    const verifiedChunks = chunks.filter(c => c.status === ChunkStatus.Verified && c.audioBlob);
+    if (verifiedChunks.length === 0) {
+        toast.error('No verified chunks to create a backup.');
+        return;
+    }
+
+    toast.loading('Creating backup package...', { id: 'backup-toast' });
+    
+    try {
+        const zip = new JSZip();
+        const dataFolder = zip.folder('data');
+        if (!dataFolder) {
+          throw new Error("Could not create data folder in zip");
+        }
+        const audioFolder = dataFolder.folder('audio');
+        if (!audioFolder) {
+          throw new Error("Could not create audio folder in zip");
+        }
+
+
+        // Add audio files
+        verifiedChunks.forEach((chunk, index) => {
+            audioFolder.file(`sentence${index + 1}.wav`, chunk.audioBlob!);
+        });
+        
+        // Create and add metadata.csv
+        const header = 'filename|transcription\n';
+        const rows = verifiedChunks.map((c, index) => `sentence${index + 1}.wav|${c.text.trim()}`).join('\n');
+        const csvContent = header + rows;
+        dataFolder.file('metadata.csv', csvContent);
+
+        // Generate and download zip
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(zipBlob);
+        link.setAttribute('href', url);
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        link.setAttribute('download', `ekegusii_dataset_backup_${timestamp}.zip`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        toast.success('Backup package download started.', { id: 'backup-toast' });
+
+    } catch (error) {
+        console.error('Error creating backup zip file:', error);
+        toast.error('Failed to create backup package.', { id: 'backup-toast' });
+    }
+  }, [chunks]);
 
   const renderTabContent = () => {
     switch (activeTab) {
+      case 'home':
+        return <HomeTab onStart={() => setActiveTab('text-input')} />;
       case 'text-input':
         return <TextInputTab onChunksGenerated={handleChunksGenerated} existingChunks={chunks} onDeleteChunk={handleDeleteChunk} />;
       case 'recording':
@@ -137,11 +281,23 @@ const App: React.FC = () => {
       case 'verification':
         return <VerificationTab chunks={chunks.filter(c => c.status === ChunkStatus.Recorded)} onVerify={handleVerification} />;
       case 'export':
-        return <ExportTab stats={stats} onDownloadCsv={handleDownloadCsv} onDownloadAudio={handleDownloadAudio} onFullExport={handleFullExport} />;
+        return <ExportTab stats={stats} onDownloadCsv={handleDownloadCsv} onDownloadAudio={handleDownloadAudio} onBackupExport={handleBackupExport} />;
       default:
         return null;
     }
   };
+
+  const MoonIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+    </svg>
+  );
+
+  const SunIcon = () => (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+      </svg>
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800 dark:bg-gray-900 dark:text-gray-200 font-sans">
@@ -154,6 +310,13 @@ const App: React.FC = () => {
               Ekegusii Speech Dataset Collector
             </h1>
           </div>
+          <button 
+            onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} 
+            aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+            className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 focus:ring-offset-white dark:focus:ring-offset-gray-800 transition-colors"
+          >
+            {theme === 'light' ? <MoonIcon /> : <SunIcon />}
+          </button>
         </div>
       </header>
       
